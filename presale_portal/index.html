@@ -213,6 +213,34 @@
       height: 16px;
       fill: currentColor;
     }
+    /* 重置按钮样式 */
+    .reset-button {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      background: #ffffff;
+      color: #6b7280;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .reset-button:hover {
+      background: #f9fafb;
+      border-color: #9ca3af;
+      color: #374151;
+    }
+    .reset-button:active {
+      background: #f3f4f6;
+    }
+    .reset-button svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+    }
     /* 提取按钮网格布局 */
     .extract-buttons-grid {
       display: grid;
@@ -809,6 +837,12 @@
               <div style="font-size: 12px; font-weight: 600; color: #374151; margin-bottom: 8px;">识别过程：</div>
               <textarea id="recognitionProcessText" readonly style="width: 100%; min-height: 120px; border: none; background: transparent; font-size: 12px; color: #4b5563; line-height: 1.6; font-family: 'Monaco', 'Menlo', 'Courier New', monospace; resize: none; outline: none;"></textarea>
             </div>
+            <button id="resetBtn" class="reset-button" style="margin-top: 16px; display: none;">
+              <svg viewBox="0 0 24 24">
+                <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/>
+              </svg>
+              重置
+            </button>
             <div id="blueprintStatus" class="status-text">
               当前状态：<span>等待上传实施蓝图</span>
             </div>
@@ -936,11 +970,21 @@
           selectedFileNameEl.style.display = 'block';
           fileNameTextEl.textContent = fileName || '未知文件';
         }
+        // 显示重置按钮
+        const resetBtn = document.getElementById('resetBtn');
+        if (resetBtn) {
+          resetBtn.style.display = 'inline-flex';
+        }
       }
 
       function hideFileName() {
         if (selectedFileNameEl) {
           selectedFileNameEl.style.display = 'none';
+        }
+        // 隐藏重置按钮
+        const resetBtn = document.getElementById('resetBtn');
+        if (resetBtn) {
+          resetBtn.style.display = 'none';
         }
       }
 
@@ -1246,6 +1290,58 @@
         }
       }
 
+      // 重置功能：清除文件选择和预览区
+      function resetAll() {
+        // 清除文件输入
+        if (fileInput) {
+          fileInput.value = '';
+        }
+        
+        // 隐藏文件名显示
+        if (selectedFileNameEl) {
+          selectedFileNameEl.style.display = 'none';
+        }
+        
+        // 清空预览区
+        clearResults();
+        
+        // 隐藏识别过程
+        if (recognitionProcessEl) {
+          recognitionProcessEl.style.display = 'none';
+        }
+        if (recognitionProcessTextEl) {
+          recognitionProcessTextEl.value = '';
+        }
+        
+        // 重置状态文本
+        setStatus('等待上传实施蓝图', false);
+        
+        // 隐藏重置按钮
+        const resetBtn = document.getElementById('resetBtn');
+        if (resetBtn) {
+          resetBtn.style.display = 'none';
+        }
+        
+        // 重置所有按钮状态
+        const allButtons = document.querySelectorAll('.extract-button, .upload-button');
+        allButtons.forEach(btn => {
+          btn.disabled = false;
+          const span = btn.querySelector('span');
+          if (span) {
+            // 恢复按钮原始文本（从按钮的 data-original-text 属性）
+            const originalText = btn.getAttribute('data-original-text');
+            if (originalText) {
+              span.textContent = originalText;
+            }
+          } else if (btn.id === 'blueprintAnalyzeBtn') {
+            // 开始识别按钮没有span，直接恢复文本
+            btn.textContent = '开始识别';
+          }
+        });
+        
+        log('info', 'reset-all', {});
+      }
+
       function renderResults(data) {
         console.log('[DEBUG] renderResults called with data:', data);
         console.log('[DEBUG] resultContainer element:', resultContainer);
@@ -1399,14 +1495,52 @@
           {
             title: '四、需求痛点层',
             icon: '⚠️',
-            content: (data.painPoints && typeof data.painPoints === 'object' && !Array.isArray(data.painPoints) && Object.keys(data.painPoints).length > 0) ? `
-              <h4>一线执行层（具象痛点）</h4>
-              ${(data.painPoints.executive && typeof data.painPoints.executive === 'string' && data.painPoints.executive.trim()) ? markdownToHtml(data.painPoints.executive) : '<p>未提取</p>'}
-              <h4>中间管理层（具象痛点）</h4>
-              ${(data.painPoints.management && typeof data.painPoints.management === 'string' && data.painPoints.management.trim()) ? markdownToHtml(data.painPoints.management) : '<p>未提取</p>'}
-              <h4>高管层（具象痛点）</h4>
-              ${(data.painPoints.senior && typeof data.painPoints.senior === 'string' && data.painPoints.senior.trim()) ? markdownToHtml(data.painPoints.senior) : '<p>未提取</p>'}
-            ` : (typeof data.painPoints === 'string' ? `<p>${data.painPoints}</p>` : '<p style="color: #9ca3af; font-style: italic;">未提取（数据结构为空）</p>')
+            content: (() => {
+              if (data.painPoints && typeof data.painPoints === 'object' && !Array.isArray(data.painPoints) && Object.keys(data.painPoints).length > 0) {
+                // 处理 executive：可能是数组或字符串
+                let executive = '未提取';
+                if (data.painPoints.executive) {
+                  if (Array.isArray(data.painPoints.executive)) {
+                    executive = data.painPoints.executive.join('\n');
+                  } else if (typeof data.painPoints.executive === 'string' && data.painPoints.executive.trim()) {
+                    executive = data.painPoints.executive;
+                  }
+                }
+                
+                // 处理 management：可能是数组或字符串
+                let management = '未提取';
+                if (data.painPoints.management) {
+                  if (Array.isArray(data.painPoints.management)) {
+                    management = data.painPoints.management.join('\n');
+                  } else if (typeof data.painPoints.management === 'string' && data.painPoints.management.trim()) {
+                    management = data.painPoints.management;
+                  }
+                }
+                
+                // 处理 senior：可能是数组或字符串
+                let senior = '未提取';
+                if (data.painPoints.senior) {
+                  if (Array.isArray(data.painPoints.senior)) {
+                    senior = data.painPoints.senior.join('\n');
+                  } else if (typeof data.painPoints.senior === 'string' && data.painPoints.senior.trim()) {
+                    senior = data.painPoints.senior;
+                  }
+                }
+                
+                return `
+                  <h4>一线执行层（具象痛点）</h4>
+                  ${markdownToHtml(executive)}
+                  <h4>中间管理层（具象痛点）</h4>
+                  ${markdownToHtml(management)}
+                  <h4>高管层（具象痛点）</h4>
+                  ${markdownToHtml(senior)}
+                `;
+              } else if (typeof data.painPoints === 'string') {
+                return `<p>${data.painPoints}</p>`;
+              } else {
+                return '<p style="color: #9ca3af; font-style: italic;">未提取（数据结构为空）</p>';
+              }
+            })()
           },
           {
             title: '五、方案策略层',
@@ -2080,9 +2214,36 @@
       // 需求痛点层
       function renderPainPoints(data) {
         const contentFn = (data) => {
-          const executive = (data.executive && data.executive.trim()) || '未提取';
-          const management = (data.management && data.management.trim()) || '未提取';
-          const senior = (data.senior && data.senior.trim()) || '未提取';
+          // 处理 executive：可能是数组或字符串
+          let executive = '未提取';
+          if (data.executive) {
+            if (Array.isArray(data.executive)) {
+              executive = data.executive.join('\n');
+            } else if (typeof data.executive === 'string') {
+              executive = data.executive;
+            }
+          }
+          
+          // 处理 management：可能是数组或字符串
+          let management = '未提取';
+          if (data.management) {
+            if (Array.isArray(data.management)) {
+              management = data.management.join('\n');
+            } else if (typeof data.management === 'string') {
+              management = data.management;
+            }
+          }
+          
+          // 处理 senior：可能是数组或字符串
+          let senior = '未提取';
+          if (data.senior) {
+            if (Array.isArray(data.senior)) {
+              senior = data.senior.join('\n');
+            } else if (typeof data.senior === 'string') {
+              senior = data.senior;
+            }
+          }
+          
           return `
             <h4>一线执行层（具象痛点）</h4>
             ${markdownToHtml(executive)}
@@ -2134,6 +2295,20 @@
       function renderIndustryAssets(data) {
         renderSection(data, '九、行业资产总结层', '⭐', 'industryAssets');
       }
+
+      // 保存按钮的原始文本
+      function saveButtonOriginalTexts() {
+        const allButtons = document.querySelectorAll('.extract-button');
+        allButtons.forEach(btn => {
+          const span = btn.querySelector('span');
+          if (span && !btn.getAttribute('data-original-text')) {
+            btn.setAttribute('data-original-text', span.textContent);
+          }
+        });
+      }
+
+      // 页面加载时保存按钮原始文本
+      saveButtonOriginalTexts();
 
       // 按钮事件监听器
       if (projectOverviewBtn) {
@@ -2261,6 +2436,15 @@
             } else {
               hideFileName();
             }
+          });
+        }
+
+        // 重置按钮事件监听器
+        const resetBtn = document.getElementById('resetBtn');
+        if (resetBtn) {
+          resetBtn.addEventListener('click', function(event) {
+            event.stopPropagation(); // 阻止事件冒泡
+            resetAll();
           });
         }
       }

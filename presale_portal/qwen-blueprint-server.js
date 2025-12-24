@@ -39,6 +39,25 @@ app.get('/health', (req, res) => {
   res.json({ ok: true });
 });
 
+// 清理文本格式：移除多余的换行符和空白字符
+function cleanTextFormat(text) {
+  if (!text || typeof text !== 'string') return text;
+  
+  // 移除连续的换行符（超过2个的换行符替换为2个）
+  text = text.replace(/\n{3,}/g, '\n\n');
+  
+  // 移除行首行尾的空白字符
+  text = text.split('\n').map(line => line.trim()).join('\n');
+  
+  // 移除段落之间的多余空行（保留一个空行）
+  text = text.replace(/\n\n\n+/g, '\n\n');
+  
+  // 移除开头和结尾的换行符
+  text = text.trim();
+  
+  return text;
+}
+
 // 通用辅助函数：解析PDF并调用通义千问
 async function extractFromPDF(req, promptTemplate, requestId) {
   const qwenSecret = req.header('X-Qwen-Secret');
@@ -114,7 +133,27 @@ async function extractFromPDF(req, promptTemplate, requestId) {
   }
   
   cleanedContent = cleanedContent.trim();
-  return JSON.parse(cleanedContent);
+  const parsed = JSON.parse(cleanedContent);
+  
+  // 递归清理所有字符串字段的格式
+  function cleanObject(obj) {
+    if (typeof obj === 'string') {
+      return cleanTextFormat(obj);
+    } else if (Array.isArray(obj)) {
+      return obj.map(item => cleanObject(item));
+    } else if (obj && typeof obj === 'object') {
+      const cleaned = {};
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          cleaned[key] = cleanObject(obj[key]);
+        }
+      }
+      return cleaned;
+    }
+    return obj;
+  }
+  
+  return cleanObject(parsed);
 }
 
 // 发送SSE消息的辅助函数
@@ -378,8 +417,26 @@ ${text.slice(0, 15000)}
       };
     }
 
+    // 递归清理对象中所有字符串字段的格式
+    function cleanObject(obj) {
+      if (typeof obj === 'string') {
+        return cleanTextFormat(obj);
+      } else if (Array.isArray(obj)) {
+        return obj.map(item => cleanObject(item));
+      } else if (obj && typeof obj === 'object') {
+        const cleaned = {};
+        for (const key in obj) {
+          if (obj.hasOwnProperty(key)) {
+            cleaned[key] = cleanObject(obj[key]);
+          }
+        }
+        return cleaned;
+      }
+      return obj;
+    }
+    
     // 确保所有字段都有值，即使是空对象或空字符串
-    const result = {
+    const rawResult = {
       projectOverview: parsed.projectOverview || {},
       businessArchitecture: parsed.businessArchitecture || '',
       roleValueTransformation: parsed.roleValueTransformation || '',
@@ -390,6 +447,9 @@ ${text.slice(0, 15000)}
       standards: parsed.standards || '',
       industryAssets: parsed.industryAssets || '',
     };
+    
+    // 清理所有字符串字段的格式
+    const result = cleanObject(rawResult);
     
     // 记录最终结果的数据结构
     log('info', 'final-result-structure', {
@@ -572,9 +632,9 @@ ${text.slice(0, 15000)}
     }
 
     const result = {
-      customerName: parsed.customerName || '',
-      coreProblems: parsed.coreProblems || '',
-      solutionSummary: parsed.solutionSummary || '',
+      customerName: cleanTextFormat(parsed.customerName || ''),
+      coreProblems: cleanTextFormat(parsed.coreProblems || ''),
+      solutionSummary: cleanTextFormat(parsed.solutionSummary || ''),
     };
 
     log('info', 'overview-finished', { requestId });
@@ -740,14 +800,20 @@ app.post('/api/blueprint/solution-strategy', upload.single('file'), async (req, 
 请深度阅读上传的项目蓝图文件，提取方案策略层信息，并以 JSON 格式输出：
 
 {
-  "masterData": "主数据规划：列出核心主数据、其编码规则及关键的业务联动点，使用 Markdown 格式",
-  "painSolutions": "针对需求痛点层中的核心痛点，按'诊断逻辑、数据结构规划、流程穿越、数据联动、人员联动'五个维度描述，使用 Markdown 格式"
+  "masterData": "5.1 主数据规划：列出核心主数据、其编码规则及关键的业务联动点，使用 Markdown 格式",
+  "painSolutions": "5.2 痛点方案罗列：\\n\\n首先，从蓝图中提取所有需求痛点（包括一线执行层、中间管理层、高管层的痛点）。\\n\\n然后，针对每个痛点，列出对应的解决方案。每个痛点的解决方案必须包含以下二级要点：\\n- 数据结构：描述解决该痛点所需的数据结构设计\\n- 流程：描述解决该痛点的业务流程设计\\n- 联动：描述解决该痛点所需的数据联动、人员联动等机制\\n\\n输出格式示例：\\n\\n### 痛点1：痛点描述\\n**解决方案：**\\n- 数据结构：***\\n- 流程：***\\n- 联动：***\\n\\n### 痛点2：痛点描述\\n**解决方案：**\\n- 数据结构：***\\n- 流程：***\\n- 联动：***"
 }
 
 输出要求：
 - 直接输出纯 JSON 格式，不要包含任何 markdown 代码块标记（如 \`\`\`json），不要包含任何解释性文字，只输出 JSON 对象本身
 - 准确引用：所有信息点必须引用蓝图原文，关键术语用 \`\` 标注
-- 逻辑严密：确保方案策略层与需求痛点层形成闭环
+- 逻辑严密：确保方案策略层与需求痛点层形成闭环，每个痛点都要有对应的解决方案
+- 格式要求：
+  * painSolutions 字段必须首先列出所有需求痛点，然后针对每个痛点提供解决方案
+  * 每个痛点的解决方案必须包含三个二级要点：数据结构、流程、联动
+  * 每个二级要点都要有具体的内容描述，不能为空
+  * 痛点描述要准确引用蓝图中的痛点内容
+  * 使用 Markdown 格式，保持结构清晰
 
 以下是项目蓝图的全文内容：
 --------------------
